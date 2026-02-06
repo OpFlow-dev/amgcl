@@ -1,0 +1,73 @@
+name: Build and publish conda package
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag to build (defaults to latest git tag)"
+        required: false
+        type: string
+
+jobs:
+  build-upload:
+    runs-on: ubuntu-latest
+    env:
+      CONDA_BUILD_NUMBER: 0
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set version
+        id: version
+        shell: bash
+        run: |
+          version_input="${{ inputs.version }}"
+          if [ -z "$version_input" ]; then
+            if [ "${{ github.event_name }}" = "release" ]; then
+              version_input="${{ github.event.release.tag_name }}"
+            else
+              version_input="$(git describe --tags --abbrev=0)"
+            fi
+          fi
+          version_input="${version_input#v}"
+          echo "version=$version_input" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-update-conda: true
+          python-version: "3.11"
+          miniforge-variant: Mambaforge
+          channels: conda-forge,defaults
+          activate-environment: conda-build
+
+      - name: Install conda build tooling
+        shell: bash -l {0}
+        run: |
+          mamba install -y conda-build anaconda-client
+
+      - name: Build conda package
+        id: build
+        shell: bash -l {0}
+        env:
+          CONDA_PKG_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          pkg_path="$(conda build conda/recipe --output)"
+          conda build conda/recipe
+          echo "package_path=$pkg_path" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to Anaconda
+        shell: bash -l {0}
+        env:
+          ANACONDA_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
+          ANACONDA_USER: ${{ secrets.ANACONDA_USER }}
+        run: |
+          if [ -z "$ANACONDA_TOKEN" ] || [ -z "$ANACONDA_USER" ]; then
+            echo "ANACONDA_TOKEN and ANACONDA_USER secrets must be set." >&2
+            exit 1
+          fi
+          anaconda upload --token "$ANACONDA_TOKEN" --user "$ANACONDA_USER" "${{ steps.build.outputs.package_path }}"

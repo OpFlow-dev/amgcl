@@ -1,0 +1,49 @@
+{% set name = "amgcl" %}
+{% set version = environ.get('CONDA_PKG_VERSION', '0.0.0').lstrip('v') %}
+
+package:
+  name: {{ name|lower }}
+  version: {{ version }}
+
+source:
+  path: ../..
+
+build:
+  number: {{ environ.get('CONDA_BUILD_NUMBER', '0') }}
+  script: |
+    cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=${PREFIX}
+    cmake --build build --config Release
+    cmake --install build --config Release
+  skip: true  # [win]
+
+requirements:
+  host:
+    - {{ compiler('cxx') }}
+    - cmake
+    - make
+  run:
+    - {{ compiler('cxx') }}
+
+test:
+  requires:
+    - {{ compiler('cxx') }}
+    - cmake
+    - make
+  files:
+    - test/CMakeLists.txt
+    - test/main.cpp
+  commands:
+    - test -f ${PREFIX}/include/amgcl/amg.hpp
+    - cmake -S test -B test-build -DCMAKE_PREFIX_PATH=${PREFIX}
+    - cmake --build test-build --config Release
+    - ./test-build/amgcl_smoke
+
+about:
+  home: https://github.com/ddemidov/amgcl
+  license: MIT
+  license_file: LICENSE.md
+  summary: Solution of large sparse linear systems with Algebraic Multigrid Method
+
+extra:
+  recipe-maintainers:
+    - ddemidov
