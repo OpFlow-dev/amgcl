@@ -1,0 +1,70 @@
+name: Conda CI
+
+on:
+  pull_request:
+    branches:
+      - master
+  push:
+    branches:
+      - master
+
+jobs:
+  build-conda:
+    name: Build conda package (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-update-conda: true
+          use-mamba: true
+
+      - name: Install conda build tools
+        shell: bash -el {0}
+        run: |
+          conda install -y -n base conda-build anaconda-client
+
+      - name: Resolve release tag
+        id: resolve_tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+          TAG="$(git tag --sort=-creatordate | head -n 1 || true)"
+          if [ -z "$TAG" ]; then
+            REMOTE_REPO="${{ github.event.repository.full_name }}"
+            if [ -n "${{ github.event.repository.parent.full_name }}" ]; then
+              REMOTE_REPO="${{ github.event.repository.parent.full_name }}"
+            fi
+            TAG="$(git ls-remote --tags --refs --sort='v:refname' "https://github.com/$REMOTE_REPO.git" \
+                  refs/tags/* | awk '{print $2}' | sed 's#refs/tags/##' | head -n 1)"
+          fi
+          if [ -z "$TAG" ]; then
+            TAG="1.4.5"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Build conda package
+        env:
+          GIT_DESCRIBE_TAG: ${{ steps.resolve_tag.outputs.tag }}
+        shell: bash -el {0}
+        run: |
+          conda build conda/recipe --no-test
+
+      - name: Test built package
+        env:
+          GIT_DESCRIBE_TAG: ${{ steps.resolve_tag.outputs.tag }}
+        shell: bash -el {0}
+        run: |
+          PKG_FILE="$(conda build --output conda/recipe)"
+          conda build --test "$PKG_FILE" -c local
