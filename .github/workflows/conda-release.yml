@@ -73,4 +73,4 @@ jobs:
             echo "Missing ANACONDA_API_TOKEN secret."
             exit 1
           fi
-          anaconda upload -u "$ANACONDA_ORG" "$PKG_FILE"
+          conda run -n base anaconda upload -u "$ANACONDA_ORG" "$PKG_FILE"
